@@ -18,9 +18,10 @@ import org.spearce.jgit.lib.RefUpdate;
 import org.spearce.jgit.lib.Repository;
 import org.spearce.jgit.lib.Tree;
 import org.spearce.jgit.lib.TreeEntry;
-import org.spearce.jgit.revwalk.ObjectWalk;
-import org.spearce.jgit.revwalk.RevObject;
-import org.spearce.jgit.treewalk.filter.PathFilter;
+import org.spearce.jgit.revwalk.RevCommit;
+import org.spearce.jgit.revwalk.RevWalk;
+import org.spearce.jgit.treewalk.TreeWalk;
+import org.spearce.jgit.treewalk.filter.TreeFilter;
 
 /**
  * Hello world!
@@ -33,7 +34,7 @@ public class App {
 
     public static void main(String[] args) {
         long startTime = System.currentTimeMillis();
-        performVersioningExperiment(false, false);
+        performVersioningExperiment(false, false, false);
         System.out.println("Duration: " + (System.currentTimeMillis() -
             startTime) + "ms");
     }
@@ -117,6 +118,7 @@ public class App {
     }
 
     private static void performVersioningExperiment(
+        final boolean performCommit,
         final boolean performCommitWalk,
         final boolean performObjectWalk) {
 
@@ -126,7 +128,6 @@ public class App {
             "\n\t</summary>\n</bookElement>\n";
         Repository repository = null;
 
-        //WRITE to REPOSITORY
         try {
             final File repoLocation =
                 new File(
@@ -135,18 +136,21 @@ public class App {
             if (!repoLocation.exists()) {
                 repository.create();
             }
-            GitIndex gitIndex = repository.getIndex();
-            ObjectWriter objectWriter =
-                new ObjectWriter(repository);
             Tree head = getHeadTree(repository);
-            for (int i = 0;
-                i < App.OBJECT_COUNT;
-                ++i) {
-                String isbn =
-                    String.valueOf(Integer.parseInt(App.INIT_ID) + i);
-                commitSingleBook(head, isbn, xmlData, objectWriter, gitIndex,
-                    repository);
-                head = getHeadTree(repository);
+            if (performCommit) {
+                //WRITE to REPOSITORY
+                GitIndex gitIndex = repository.getIndex();
+                ObjectWriter objectWriter =
+                    new ObjectWriter(repository);
+                for (int i = 0;
+                    i < App.OBJECT_COUNT;
+                    ++i) {
+                    String isbn =
+                        String.valueOf(Integer.parseInt(App.INIT_ID) + i);
+                    commitSingleBook(head, isbn, xmlData, objectWriter, gitIndex,
+                        repository);
+                    head = getHeadTree(repository);
+                }
             }
 
             //READ from REPOSITORY
@@ -195,29 +199,37 @@ public class App {
     private static void readRevisionsForObjectPath(Repository repo,
                                                    String isbn)
         throws IOException {
-        ObjectWalk objectWalk = new ObjectWalk(repo);
-        /*
-         * Checks whether the Commit has the tree or not. It does not
-         * check whether it has changed or not.
-         */
-        objectWalk.setTreeFilter(PathFilter.create(isbn));
-        RevObject revObject = null;
-        objectWalk.markStart(
-            objectWalk.parseCommit(repo.resolve(Constants.HEAD)));
-        Set<ObjectId> revisions =
-            new HashSet<ObjectId>();
-        do {
-            if (revObject != null) {
-                Commit revision = repo.mapCommit(revObject.getId());
-                Tree versionTree = repo.mapTree(revision.getTreeId());
-                if (versionTree.existsBlob(isbn)) {
-                    revisions.add(versionTree.findBlobMember(isbn).getId());
+        final Set<ObjectId> versions = new HashSet<ObjectId>();
+        final RevWalk rw = new RevWalk(repo);
+        final TreeWalk tw = new TreeWalk(repo);
+        rw.markStart(rw.parseCommit(repo.resolve(Constants.HEAD)));
+        tw.setFilter(TreeFilter.ANY_DIFF);
+        RevCommit c;
+        while ((c = rw.next()) != null) {
+            final ObjectId[] p = new ObjectId[c.getParentCount() + 1];
+            for (int i = 0; i < c.getParentCount(); i++) {
+                rw.parse(c.getParent(i));
+                p[i] = c.getParent(i).getTree();
+            }
+            final int me = p.length - 1;
+            p[me] = c.getTree();
+            tw.reset(p);
+            while (tw.next()) {
+                if (tw.getFileMode(me).getObjectType() == Constants.OBJ_BLOB) {
+                    // This path was modified relative to the ancestor(s)
+                    String s = tw.getPathString();
+                    if (s != null && s.equals(isbn)) {
+                        Set<ObjectId> i = versions;
+                        i.add(tw.getObjectId(me));
+                    }
+                }
+                if (tw.isSubtree()) {
+                    // make sure we recurse into modified directories
+                    tw.enterSubtree();
                 }
             }
-            revObject = objectWalk.next();
         }
-        while (revObject != null);
-        System.out.println("Revisions ("+ revisions.size() +"): " + revisions);
+        System.out.println("Revisions (" + versions.size() + "): " + versions);
     }
 
     private static void traverseCommit(ObjectId commitId,
