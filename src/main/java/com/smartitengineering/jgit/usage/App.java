@@ -4,6 +4,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.Date;
 import java.util.HashSet;
+import java.util.Random;
 import java.util.Set;
 import org.spearce.jgit.lib.Commit;
 import org.spearce.jgit.lib.Constants;
@@ -32,7 +33,7 @@ public class App {
 
     public static void main(String[] args) {
         long startTime = System.currentTimeMillis();
-        performVersioningExperiment(false, true);
+        performVersioningExperiment(false, false);
         System.out.println("Duration: " + (System.currentTimeMillis() -
             startTime) + "ms");
     }
@@ -150,16 +151,23 @@ public class App {
 
             //READ from REPOSITORY
             Repository repo = repository;
-            if(performCommitWalk) {
+            if (performCommitWalk) {
                 ObjectId commitId = repo.resolve(Constants.HEAD);
                 traverseCommit(commitId, repo);
             }
 
             //REV Walk
-            if(performObjectWalk) {
+            if (performObjectWalk) {
                 head = getHeadTree(repository);
                 printRevisionsForObject(repo);
             }
+            int rand = Math.abs(new Random().nextInt()) % App.OBJECT_COUNT;
+            long startTime = System.currentTimeMillis();
+            String testIsbn = String.valueOf(Integer.parseInt(INIT_ID) + rand);
+            readRevisionsForObjectPath(repo, testIsbn);
+            System.out.println("Duration for single object revisions for ISBN " +
+                testIsbn + ": " + (System.currentTimeMillis() - startTime) +
+                "ms");
         }
         catch (Exception ex) {
             ex.printStackTrace();
@@ -180,30 +188,36 @@ public class App {
             String isbn =
                 String.valueOf(Integer.parseInt(App.INIT_ID) + i);
             System.out.println("ISBN: " + isbn);
-            ObjectWalk objectWalk = new ObjectWalk(repo);
-            /*
-             * Checks whether the Commit has the tree or not. It does not
-             * check whether it has changed or not.
-             */
-            objectWalk.setTreeFilter(PathFilter.create(isbn));
-            RevObject revObject = null;
-            objectWalk.markStart(objectWalk.parseCommit(repo.resolve(
-                Constants.HEAD)));
-            Set<ObjectId> revisions =
-                new HashSet<ObjectId>();
-            do {
-                if (revObject != null) {
-                    Commit revision = repo.mapCommit(revObject.getId());
-                    Tree versionTree = repo.mapTree(revision.getTreeId());
-                    if (versionTree.existsBlob(isbn)) {
-                        revisions.add(versionTree.findBlobMember(isbn).getId());
-                    }
-                }
-                revObject = objectWalk.next();
-            }
-            while (revObject != null);
-            System.out.println("Revisions: " + revisions);
+            readRevisionsForObjectPath(repo, isbn);
         }
+    }
+
+    private static void readRevisionsForObjectPath(Repository repo,
+                                                   String isbn)
+        throws IOException {
+        ObjectWalk objectWalk = new ObjectWalk(repo);
+        /*
+         * Checks whether the Commit has the tree or not. It does not
+         * check whether it has changed or not.
+         */
+        objectWalk.setTreeFilter(PathFilter.create(isbn));
+        RevObject revObject = null;
+        objectWalk.markStart(
+            objectWalk.parseCommit(repo.resolve(Constants.HEAD)));
+        Set<ObjectId> revisions =
+            new HashSet<ObjectId>();
+        do {
+            if (revObject != null) {
+                Commit revision = repo.mapCommit(revObject.getId());
+                Tree versionTree = repo.mapTree(revision.getTreeId());
+                if (versionTree.existsBlob(isbn)) {
+                    revisions.add(versionTree.findBlobMember(isbn).getId());
+                }
+            }
+            revObject = objectWalk.next();
+        }
+        while (revObject != null);
+        System.out.println("Revisions ("+ revisions.size() +"): " + revisions);
     }
 
     private static void traverseCommit(ObjectId commitId,
