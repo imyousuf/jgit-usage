@@ -1,11 +1,21 @@
 package com.smartitengineering.jgit.usage;
 
 import java.io.File;
+import java.io.FileWriter;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.StringWriter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Date;
-import java.util.HashSet;
+import java.util.Iterator;
+import java.util.LinkedHashSet;
+import java.util.LinkedList;
+import java.util.Properties;
 import java.util.Random;
 import java.util.Set;
+import name.fraser.neil.plaintext.diff_match_patch;
+import name.fraser.neil.plaintext.diff_match_patch.Diff;
 import org.spearce.jgit.lib.Commit;
 import org.spearce.jgit.lib.Constants;
 import org.spearce.jgit.lib.FileTreeEntry;
@@ -199,7 +209,7 @@ public class App {
     private static void readRevisionsForObjectPath(Repository repo,
                                                    String isbn)
         throws IOException {
-        final Set<ObjectId> versions = new HashSet<ObjectId>();
+        final Set<ObjectId> versions = new LinkedHashSet<ObjectId>();
         final RevWalk rw = new RevWalk(repo);
         final TreeWalk tw = new TreeWalk(repo);
         rw.markStart(rw.parseCommit(repo.resolve(Constants.HEAD)));
@@ -230,6 +240,33 @@ public class App {
             }
         }
         System.out.println("Revisions (" + versions.size() + "): " + versions);
+        ArrayList<ObjectId> versionList = new ArrayList(versions);
+        Collections.reverse(versionList);
+        Iterator<ObjectId> versionIterator = versionList.iterator();
+        ObjectId first = versionIterator.next();
+        for(int i = 0; i < versions.size() - 1; ++i) {
+            final ObjectId second = versionIterator.next();
+            ObjectLoader objectLoader = repo.openObject(first);
+            String firstStr = new String(objectLoader.getBytes());
+            objectLoader = repo.openObject(second);
+            String secondStr = new String(objectLoader.getBytes());
+            diff_match_patch diff = new diff_match_patch();
+            LinkedList<Diff> diffs = diff.diff_main(firstStr, secondStr);
+            System.out.println("-----------------------");
+            final String htmlDiff = diff.diff_prettyHtml(diffs);
+            Properties properties = new Properties();
+            properties.load(App.class.getClassLoader().getResourceAsStream("props.properties"));
+            String outputDir = properties.getProperty("write_dir");
+            if(outputDir != null && !outputDir.isEmpty()) {
+                OutputStreamWriter writer = new FileWriter(outputDir + i + ".html");
+                writer.write(htmlDiff, 0, htmlDiff.length());
+                writer.close();
+            }
+            System.out.println(diff.patch_toText(diff.patch_make(diffs)));
+            System.out.println("-----------------------");
+            first = second;
+        }
+        
     }
 
     private static void traverseCommit(ObjectId commitId,
