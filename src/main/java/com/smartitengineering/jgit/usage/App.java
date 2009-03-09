@@ -257,7 +257,7 @@ public class App {
             Properties properties = new Properties();
             properties.load(App.class.getClassLoader().getResourceAsStream("props.properties"));
             String outputDir = properties.getProperty("write_dir");
-            if(outputDir != null && !outputDir.isEmpty()) {
+            if(outputDir != null && !outputDir.isEmpty() && !outputDir.startsWith("${")) {
                 OutputStreamWriter writer = new FileWriter(outputDir + i + ".html");
                 writer.write(htmlDiff, 0, htmlDiff.length());
                 writer.close();
